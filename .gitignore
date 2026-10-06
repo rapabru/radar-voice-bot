@@ -1,0 +1,34 @@
+# Archivos de entorno y credenciales (NUNCA SUBIR A GITHUB)
+.env
+.env.local
+*.env
+
+# Archivos empaquetados con credenciales
+bot.zip
+
+# Entorno virtual de Python
+.venv/
+venv/
+ENV/
+env/
+
+# Caché y archivos compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Archivos temporales de pruebas y logs
+*.log
+test_emoji.png
+
+# IDE y editores
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Sistema operativo
+Thumbs.db
+Desktop.ini
+.DS_Store
