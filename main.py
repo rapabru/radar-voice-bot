@@ -14,6 +14,8 @@ if sys.platform == "win32":
 import discord
 from discord.ext import commands
 from discord import app_commands
+import aiohttp
+from aiohttp import web
 import config
 
 # Configuración básica de logs
@@ -30,6 +32,59 @@ intents.message_content = True   # Para leer comandos de prefijo como !quien
 intents.voice_states = True      # INDISPENSABLE: Para detectar quién entra y sale de voz
 intents.guilds = True
 
+async def start_web_server(bot: commands.Bot):
+    """Inicia un mini-servidor web para Render (evita Port Scan Timeout y responde health checks)."""
+    async def handle_root(request):
+        bot_user = str(bot.user) if bot.user else "Iniciando..."
+        return web.Response(
+            text=f"🤖 RadarVoiceBot está Online en Discord!\nBot: {bot_user}\nServidores: {len(bot.guilds)}\nLatencia: {round(bot.latency * 1000) if bot.latency else 0}ms",
+            status=200,
+            content_type="text/plain; charset=utf-8"
+        )
+
+    async def handle_health(request):
+        return web.json_response({
+            "status": "online",
+            "bot": str(bot.user) if bot.user else "Iniciando...",
+            "guilds": len(bot.guilds),
+            "latency_ms": round(bot.latency * 1000) if bot.latency else 0
+        })
+
+    app = web.Application()
+    app.router.add_get("/", handle_root)
+    app.router.add_get("/health", handle_health)
+
+    port = int(os.getenv("PORT", "10000"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    try:
+        await site.start()
+        logger.info(f"🌐 Servidor web de Render iniciado exitosamente en puerto {port}")
+    except Exception as e:
+        logger.warning(f"Aviso sobre servidor web en puerto {port}: {e}")
+
+async def start_keep_alive():
+    """Evita que Render duerma el bot enviando un auto-ping a su URL pública cada 10 minutos."""
+    await asyncio.sleep(45)  # Esperar a que el bot y Render estén completamente arriba
+    render_url = os.getenv("RENDER_EXTERNAL_URL", os.getenv("PUBLIC_URL", "")).rstrip("/")
+    if not render_url:
+        logger.info("ℹ️ No se detectó RENDER_EXTERNAL_URL (ejecución local sin auto-ping).")
+        return
+
+    logger.info(f"🚀 Auto-KeepAlive ACTIVADO para: {render_url}")
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{render_url}/health", timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 200:
+                        logger.info("💓 Auto-KeepAlive ping exitoso (evitando que Render duerma el bot)")
+                    else:
+                        logger.warning(f"⚠️ Auto-KeepAlive respondió status {resp.status}")
+        except Exception as e:
+            logger.warning(f"⚠️ Error en Auto-KeepAlive: {e}")
+        await asyncio.sleep(600)  # Cada 10 minutos (Render suspende a los 15 min de inactividad)
+
 class MultiBot(commands.Bot):
     def __init__(self):
         super().__init__(
@@ -39,7 +94,7 @@ class MultiBot(commands.Bot):
         )
 
     async def setup_hook(self):
-        """Carga automáticamente todos los Cogs de la carpeta 'cogs'."""
+        """Carga automáticamente todos los Cogs de la carpeta 'cogs' e inicia servidor web de Render."""
         cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
         for filename in os.listdir(cogs_dir):
             if filename.endswith(".py") and not filename.startswith("__"):
@@ -49,6 +104,10 @@ class MultiBot(commands.Bot):
                     logger.info(f"✅ Módulo cargado con éxito: {extension}")
                 except Exception as e:
                     logger.error(f"❌ Error al cargar módulo {extension}: {e}", exc_info=True)
+
+        # Iniciar servidor web para Render y tarea de auto-keepalive en segundo plano
+        asyncio.create_task(start_web_server(self))
+        asyncio.create_task(start_keep_alive())
 
     async def on_ready(self):
         """Evento al conectarse a Discord."""
