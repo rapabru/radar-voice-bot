@@ -3,8 +3,8 @@
 .env.local
 *.env
 
-# Archivos empaquetados con credenciales
-bot.zip
+# Archivos empaquetados
+*.zip
 
 # Entorno virtual de Python
 .venv/
